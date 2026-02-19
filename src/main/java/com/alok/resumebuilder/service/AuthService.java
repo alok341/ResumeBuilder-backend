@@ -50,31 +50,28 @@ public class AuthService {
     private void sendVerificationEmail(User newUser) {
         log.info("Inside AuthService : sendVerificationEmail() to {}", newUser.getEmail());
         try {
-            String link = frontendUrl + "/api/auth/verify-email?token=" + newUser.getVerificationToken();
+            // Remove "/api/auth" from the path
+            String link = frontendUrl + "/verify-email?token=" + newUser.getVerificationToken();
             String htmlContent = """
-                    <p>Dear %s,</p>
-                    <p>Thank you for registering. Please click the link below to verify your email address:</p>
-                    <p>
-                        <a href="%s"
-                           style="background-color:#4CAF50;color:white;padding:10px 15px;
-                                  text-decoration:none;border-radius:5px;display:inline-block;">
-                            Verify Email
-                        </a>
-                    </p>
-                    <p>This link will expire in 24 hours.</p>
-                    <p>Best regards,<br/>Resume Builder Team</p>
-                    """.formatted(newUser.getName(), link);
+                <p>Dear %s,</p>
+                <p>Thank you for registering. Please click the link below to verify your email address:</p>
+                <p>
+                    <a href="%s"
+                       style="background-color:#4CAF50;color:white;padding:10px 15px;
+                              text-decoration:none;border-radius:5px;display:inline-block;">
+                        Verify Email
+                    </a>
+                </p>
+                <p>This link will expire in 24 hours.</p>
+                <p>Best regards,<br/>Resume Builder Team</p>
+                """.formatted(newUser.getName(), link);
 
             emailService.sendHtmlEmail(newUser.getEmail(), "Email Verification", htmlContent);
             log.info("Verification email sent to: {}", newUser.getEmail());
-
-
         } catch (Exception e) {
             log.error("Failed to send verification email to: {}", newUser.getEmail(), e);
             throw new RuntimeException("Failed to send verification email", e);
         }
-
-
     }
 
     private AuthResponse toResponse(User newUser) {
