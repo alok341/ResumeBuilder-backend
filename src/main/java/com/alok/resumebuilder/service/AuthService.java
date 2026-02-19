@@ -25,8 +25,9 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
 
-    @Value("${app.base.url:http://localhost:8080}")
-    private String appUrl;
+    @Value("${app.frontend.url}")
+    private String frontendUrl;
+
 
     private final EmailService emailService;
 
@@ -49,7 +50,7 @@ public class AuthService {
     private void sendVerificationEmail(User newUser) {
         log.info("Inside AuthService : sendVerificationEmail() to {}", newUser.getEmail());
         try {
-            String link = appUrl + "/api/auth/verify-email?token=" + newUser.getVerificationToken();
+            String link = frontendUrl + "/api/auth/verify-email?token=" + newUser.getVerificationToken();
             String htmlContent = """
                     <p>Dear %s,</p>
                     <p>Thank you for registering. Please click the link below to verify your email address:</p>
