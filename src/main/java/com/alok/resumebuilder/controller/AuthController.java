@@ -2,6 +2,7 @@ package com.alok.resumebuilder.controller;
 
 import com.alok.resumebuilder.Dto.AuthResponse;
 import com.alok.resumebuilder.Dto.LoginRequest;
+import com.alok.resumebuilder.Dto.OAuth2LoginRequest;
 import com.alok.resumebuilder.Dto.RegisterRequest;
 import com.alok.resumebuilder.service.AuthService;
 import com.alok.resumebuilder.service.FileUploadService;
@@ -77,6 +78,20 @@ public class AuthController {
     public ResponseEntity<AuthResponse> getProfile(Authentication authentication) {
         String userId = authentication.getName();
         AuthResponse response = authService.getProfile(userId);
+        return ResponseEntity.ok(response);
+    }
+    @PostMapping("/set-password")
+    public ResponseEntity<?> setPassword(@RequestBody Map<String, String> request, Authentication authentication) {
+        String userId = authentication.getName();
+        String newPassword = request.get("password");
+
+        authService.setPassword(userId, newPassword);
+        return ResponseEntity.ok(Map.of("message", "Password set successfully"));
+    }
+    @PostMapping("/oauth2/google")
+    public ResponseEntity<AuthResponse> googleLogin(@Valid @RequestBody OAuth2LoginRequest request) {
+        log.info("Inside AuthController : googleLogin() for email: {}", request.getEmail());
+        AuthResponse response = authService.oauth2Login(request);
         return ResponseEntity.ok(response);
     }
 

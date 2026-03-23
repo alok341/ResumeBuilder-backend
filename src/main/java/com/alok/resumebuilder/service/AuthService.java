@@ -3,6 +3,7 @@ package com.alok.resumebuilder.service;
 import com.alok.resumebuilder.Document.User;
 import com.alok.resumebuilder.Dto.AuthResponse;
 import com.alok.resumebuilder.Dto.LoginRequest;
+import com.alok.resumebuilder.Dto.OAuth2LoginRequest;
 import com.alok.resumebuilder.Dto.RegisterRequest;
 import com.alok.resumebuilder.exceptions.ResourceExistsException;
 import com.alok.resumebuilder.repository.UserRepository;
@@ -15,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.UUID;
 
 @Service
@@ -117,24 +119,28 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest loginRequest) {
-        log.info("Inside AuthService : login() {}", loginRequest);
+        log.info("Inside AuthService : login() {}", loginRequest.getEmail());
+
         User user = userRepository.findByEmail(loginRequest.getEmail())
                 .orElseThrow(() -> new UsernameNotFoundException("Invalid email or password"));
+
+        // Check if user has password set
+        if (!user.isHasPassword()) {
+            throw new RuntimeException("Please login with Google");
+        }
 
         if (!passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())) {
             throw new UsernameNotFoundException("Invalid email or password");
         }
 
-        if(user.isEmailVerified()!=true){
-            throw new RuntimeException("Email is not verified.Please verify your email before login.");
+        if (!user.isEmailVerified()) {
+            throw new RuntimeException("Email is not verified. Please verify your email before login.");
         }
 
-
-        AuthResponse response =  toResponse(user);
+        AuthResponse response = toResponse(user);
         String token = jwtUtil.generateToken(user.getId());
         response.setToken(token);
         return response;
-
     }
 
 
@@ -154,6 +160,103 @@ public class AuthService {
         User existingUser = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         return toResponse(existingUser);
+    }
+
+    public AuthResponse oauth2Login(OAuth2LoginRequest request) {
+        log.info("Inside AuthService : oauth2Login() {}", request.getEmail());
+
+        User user = userRepository.findByEmail(request.getEmail()).orElse(null);
+
+        if (user == null) {
+            // Create new user with OAuth provider
+            user = User.builder()
+                    .name(request.getName())
+                    .email(request.getEmail())
+                    .profileImageUrl(request.getProfileImageUrl())
+                    .password(null) // No password for OAuth users
+                    .subscriptionPlan("basic")
+                    .emailVerified(true) // Google emails are verified
+                    .hasPassword(false) // Password login not enabled
+                    .oauthProviders(new ArrayList<>())
+                    .build();
+
+            // Add OAuth provider
+            user.getOauthProviders().add(new User.OAuthProvider(
+                    request.getProvider(),
+                    request.getProviderId(),
+                    request.getEmail(),
+                    request.getName(),
+                    request.getProfileImageUrl()
+            ));
+
+            userRepository.save(user);
+            log.info("New OAuth user created: {}", user.getEmail());
+
+        } else {
+            // Check if this OAuth provider is already linked
+            boolean hasProvider = user.getOauthProviders().stream()
+                    .anyMatch(p -> p.getProvider().equals(request.getProvider())
+                            && p.getProviderId().equals(request.getProviderId()));
+
+            if (!hasProvider) {
+                // Link new OAuth provider to existing account
+                user.getOauthProviders().add(new User.OAuthProvider(
+                        request.getProvider(),
+                        request.getProviderId(),
+                        request.getEmail(),
+                        request.getName(),
+                        request.getProfileImageUrl()
+                ));
+
+                // Update profile image if needed
+                if (request.getProfileImageUrl() != null &&
+                        (user.getProfileImageUrl() == null || !user.getProfileImageUrl().equals(request.getProfileImageUrl()))) {
+                    user.setProfileImageUrl(request.getProfileImageUrl());
+                }
+
+                userRepository.save(user);
+                log.info("OAuth provider linked to existing user: {}", user.getEmail());
+            }
+
+            // Update profile info if changed
+            if (request.getProfileImageUrl() != null &&
+                    (user.getProfileImageUrl() == null || !user.getProfileImageUrl().equals(request.getProfileImageUrl()))) {
+                user.setProfileImageUrl(request.getProfileImageUrl());
+                userRepository.save(user);
+            }
+        }
+
+        AuthResponse response = toResponse(user);
+        String token = jwtUtil.generateToken(user.getId());
+        response.setToken(token);
+
+        log.info("OAuth2 login successful for user: {}", user.getEmail());
+        return response;
+    }
+    public void setPassword(String userId, String newPassword) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setHasPassword(true);
+        userRepository.save(user);
+
+        log.info("Password set for user: {}", user.getEmail());
+    }
+    public void initiatePasswordSetup(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+        // Generate a special token for password setup
+        String token = UUID.randomUUID().toString();
+        user.setVerificationToken(token);
+        user.setVerificationExpires(LocalDateTime.now().plusHours(24));
+        userRepository.save(user);
+
+        // Send email with password setup link
+        String link = frontendUrl + "/set-password?token=" + token;
+        emailService.sendHtmlEmail(email, "Set Your Password",
+                "<p>Click the link to set a password for your account: <a href='" + link + "'>Set Password</a></p>");
     }
 
 
