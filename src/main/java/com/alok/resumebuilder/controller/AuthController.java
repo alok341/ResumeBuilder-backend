@@ -88,11 +88,44 @@ public class AuthController {
         authService.setPassword(userId, newPassword);
         return ResponseEntity.ok(Map.of("message", "Password set successfully"));
     }
+    @PostMapping("/initiate-password-setup")
+    public ResponseEntity<?> initiatePasswordSetup(@RequestBody Map<String, String> request) {
+        String email = request.get("email");
+        if (email == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Email is required"));
+        }
+        authService.initiatePasswordSetup(email);
+        return ResponseEntity.ok(Map.of("message", "Password setup email sent successfully"));
+    }
+
+    @PostMapping("/set-password-with-token")
+    public ResponseEntity<?> setPasswordWithToken(@RequestBody Map<String, String> request) {
+        String token = request.get("token");
+        String password = request.get("password");
+
+        if (token == null || password == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Token and password are required"));
+        }
+
+        authService.setPasswordWithToken(token, password);
+        return ResponseEntity.ok(Map.of("message", "Password set successfully"));
+    }
     @PostMapping("/oauth2/google")
     public ResponseEntity<AuthResponse> googleLogin(@Valid @RequestBody OAuth2LoginRequest request) {
         log.info("Inside AuthController : googleLogin() for email: {}", request.getEmail());
         AuthResponse response = authService.oauth2Login(request);
         return ResponseEntity.ok(response);
+    }
+    @PostMapping("/forgot-password")
+    public ResponseEntity<?> forgotPassword(@RequestBody Map<String, String> request) {
+        String email = request.get("email");
+        if (email == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Email is required"));
+        }
+
+        // Reuse the same initiatePasswordSetup method
+        authService.initiatePasswordSetup(email);
+        return ResponseEntity.ok(Map.of("message", "Password reset email sent successfully"));
     }
 
 

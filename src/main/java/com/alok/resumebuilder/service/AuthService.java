@@ -84,6 +84,7 @@ public class AuthService {
                 .profileImageUrl(newUser.getProfileImageUrl())
                 .subscriptionPlan(newUser.getSubscriptionPlan())
                 .emailVerified(newUser.isEmailVerified())
+                .hasPassword(newUser.isHasPassword())
                 .createdAt(newUser.getCreatedAt())
                 .updatedAt(newUser.getUpdatedAt())
                 .build();
@@ -97,6 +98,7 @@ public class AuthService {
                 .profileImageUrl(registerRequest.getProfileImageUrl())
                 .subscriptionPlan("basic")
                 .emailVerified(false)
+                .hasPassword(true)
                 .verificationToken(UUID.randomUUID().toString())
                 .verificationExpires(LocalDateTime.now().plusHours(24))
                 .build();
@@ -117,26 +119,43 @@ public class AuthService {
         userRepository.save(user);
         log.info("Email verified for user: {}", user.getEmail());
     }
-
     public AuthResponse login(LoginRequest loginRequest) {
         log.info("Inside AuthService : login() {}", loginRequest.getEmail());
 
         User user = userRepository.findByEmail(loginRequest.getEmail())
-                .orElseThrow(() -> new UsernameNotFoundException("Invalid email or password"));
+                .orElseThrow(() -> {
+                    log.error("User not found with email: {}", loginRequest.getEmail());
+                    return new UsernameNotFoundException("Invalid email or password");
+                });
+
+        // Debug logs
+        log.info("User found: {}", user.getEmail());
+        log.info("hasPassword: {}", user.isHasPassword());
+        log.info("emailVerified: {}", user.isEmailVerified());
+        log.info("password exists: {}", user.getPassword() != null);
 
         // Check if user has password set
         if (!user.isHasPassword()) {
+            log.error("Login failed: User {} has no password set (OAuth user)", user.getEmail());
             throw new RuntimeException("Please login with Google");
         }
 
-        if (!passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())) {
+        // Check password
+        boolean passwordMatches = passwordEncoder.matches(loginRequest.getPassword(), user.getPassword());
+        log.info("Password matches: {}", passwordMatches);
+
+        if (!passwordMatches) {
+            log.error("Login failed: Invalid password for user: {}", user.getEmail());
             throw new UsernameNotFoundException("Invalid email or password");
         }
 
+        // Check email verification
         if (!user.isEmailVerified()) {
+            log.error("Login failed: Email not verified for user: {}", user.getEmail());
             throw new RuntimeException("Email is not verified. Please verify your email before login.");
         }
 
+        log.info("Login successful for user: {}", user.getEmail());
         AuthResponse response = toResponse(user);
         String token = jwtUtil.generateToken(user.getId());
         response.setToken(token);
@@ -247,17 +266,56 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
-        // Generate a special token for password setup
+        // Generate token
         String token = UUID.randomUUID().toString();
         user.setVerificationToken(token);
         user.setVerificationExpires(LocalDateTime.now().plusHours(24));
         userRepository.save(user);
 
-        // Send email with password setup link
-        String link = frontendUrl + "/set-password?token=" + token;
-        emailService.sendHtmlEmail(email, "Set Your Password",
-                "<p>Click the link to set a password for your account: <a href='" + link + "'>Set Password</a></p>");
-    }
+        // Determine email purpose based on whether user already has password
+        boolean isPasswordReset = user.isHasPassword();
+        String subject = isPasswordReset ? "Reset Your Password" : "Set Your Password";
 
+        String link = frontendUrl + "/reset-password?token=" + token;
+        String emailContent = String.format("""
+        <p>Dear %s,</p>
+        <p>%s</p>
+        <p>
+            <a href="%s"
+               style="background-color:#4CAF50;color:white;padding:10px 15px;
+                      text-decoration:none;border-radius:5px;display:inline-block;">
+                %s
+            </a>
+        </p>
+        <p>This link will expire in 24 hours.</p>
+        <p>If you didn't request this, please ignore this email.</p>
+        <p>Best regards,<br/>Resume Builder Team</p>
+        """,
+                user.getName(),
+                isPasswordReset ? "Click the link below to reset your password." : "Click the link below to set a password for your account.",
+                link,
+                isPasswordReset ? "Reset Password" : "Set Password"
+        );
+
+        emailService.sendHtmlEmail(email, subject, emailContent);
+        log.info("{} email sent to: {}", subject, email);
+    }
+    public void setPasswordWithToken(String token, String newPassword) {
+        User user = userRepository.findByVerificationToken(token)
+                .orElseThrow(() -> new RuntimeException("Invalid or expired token"));
+
+        if (user.getVerificationExpires() != null &&
+                user.getVerificationExpires().isBefore(LocalDateTime.now())) {
+            throw new RuntimeException("Token has expired");
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setHasPassword(true);
+        user.setVerificationToken(null);
+        user.setVerificationExpires(null);
+        userRepository.save(user);
+
+        log.info("Password set for user: {}", user.getEmail());
+    }
 
 }
